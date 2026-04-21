@@ -162,6 +162,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # dependencies=_serial 确保同一时刻只有一个请求调用 xtdata
     # ------------------------------------------------------------------
     from .routers import (
+        bond,
         calendar,
         cb,
         download,
@@ -190,6 +191,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(option.router, dependencies=_serial)
     app.include_router(etf.router, dependencies=_serial)
     app.include_router(cb.router, dependencies=_serial)
+    app.include_router(bond.router, dependencies=_serial)
     app.include_router(futures.router, dependencies=_serial)
     app.include_router(meta.router, dependencies=_serial)
     app.include_router(download.router, dependencies=_serial)

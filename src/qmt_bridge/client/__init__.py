@@ -18,6 +18,7 @@ from qmt_bridge.client.instrument import InstrumentMixin
 from qmt_bridge.client.option import OptionMixin
 from qmt_bridge.client.etf import ETFMixin
 from qmt_bridge.client.cb import CBMixin
+from qmt_bridge.client.bond import BondMixin
 from qmt_bridge.client.futures import FuturesMixin
 from qmt_bridge.client.meta import MetaMixin
 from qmt_bridge.client.download import DownloadMixin
@@ -43,6 +44,7 @@ class QMTClient(
     OptionMixin,
     ETFMixin,
     CBMixin,
+    BondMixin,
     FuturesMixin,
     MetaMixin,
     DownloadMixin,
