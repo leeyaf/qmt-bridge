@@ -120,7 +120,9 @@ def _market_data_to_records(
                 for date, value in df.loc[stock].items():
                     entry = rows.setdefault(str(date), {"date": str(date)})
                     # 如果值有 .item() 方法（numpy 标量），用 .item() 转为 Python 原生类型
-                    entry[field] = value.item() if hasattr(value, "item") else value
+                    py_value = value.item() if hasattr(value, "item") else value
+                    # 防止 93.51 变成 93.50999999999999，保留 2 位小数
+                    entry[field] = round(float(py_value), 2) if isinstance(py_value, (int, float)) else py_value
         result[stock] = list(rows.values())
     return result
 
