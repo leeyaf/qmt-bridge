@@ -30,6 +30,10 @@ class BaseClient:
         self.base_url = f"http://{host}:{port}"
         self.ws_url = f"ws://{host}:{port}"
         self.api_key = api_key
+        # Bypass proxy for direct connections to QMT Bridge server
+        self._opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({})  # empty dict = no proxies
+        )
 
     # ------------------------------------------------------------------
     # 内部辅助方法
@@ -67,7 +71,7 @@ class BaseClient:
         else:
             url = f"{self.base_url}{path}"
         req = urllib.request.Request(url, headers=self._headers())
-        with urllib.request.urlopen(req) as resp:
+        with self._opener.open(req) as resp:
             return json.loads(resp.read().decode())
 
     def _post(self, path: str, body: dict) -> dict:
@@ -84,7 +88,7 @@ class BaseClient:
         data = json.dumps(body).encode()
         headers = {"Content-Type": "application/json", **self._headers()}
         req = urllib.request.Request(url, data=data, headers=headers)
-        with urllib.request.urlopen(req) as resp:
+        with self._opener.open(req) as resp:
             return json.loads(resp.read().decode())
 
     def _delete(self, path: str, params: Optional[dict] = None) -> dict:
@@ -107,7 +111,7 @@ class BaseClient:
         else:
             url = f"{self.base_url}{path}"
         req = urllib.request.Request(url, method="DELETE", headers=self._headers())
-        with urllib.request.urlopen(req) as resp:
+        with self._opener.open(req) as resp:
             return json.loads(resp.read().decode())
 
     def _to_dataframes(self, data: dict) -> dict:
