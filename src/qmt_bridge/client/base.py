@@ -10,6 +10,9 @@ import json
 import urllib.request
 from typing import Optional
 
+# 默认 HTTP 超时（秒）。避免因服务端异常或网络故障导致客户端永久阻塞。
+DEFAULT_TIMEOUT: float = 30.0
+
 
 class BaseClient:
     """轻量级 HTTP/WebSocket 客户端基类。
@@ -19,17 +22,26 @@ class BaseClient:
     QMT Bridge 服务端的 HTTP 通信。
     """
 
-    def __init__(self, host: str, port: int = 8000, *, api_key: str = ""):
+    def __init__(
+        self,
+        host: str,
+        port: int = 8000,
+        *,
+        api_key: str = "",
+        timeout: float = DEFAULT_TIMEOUT,
+    ):
         """初始化客户端连接。
 
         Args:
             host: QMT Bridge 服务端 IP 地址或主机名，如 ``"192.168.1.100"``
             port: 服务端口，默认 8000
             api_key: API Key，交易端点需要认证时必填
+            timeout: HTTP 请求超时（秒），默认 30s。设为 None 表示无超时（不推荐）。
         """
         self.base_url = f"http://{host}:{port}"
         self.ws_url = f"ws://{host}:{port}"
         self.api_key = api_key
+        self.timeout = timeout
         # Bypass proxy for direct connections to QMT Bridge server
         self._opener = urllib.request.build_opener(
             urllib.request.ProxyHandler({})  # empty dict = no proxies
@@ -71,7 +83,7 @@ class BaseClient:
         else:
             url = f"{self.base_url}{path}"
         req = urllib.request.Request(url, headers=self._headers())
-        with self._opener.open(req) as resp:
+        with self._opener.open(req, timeout=self.timeout) as resp:
             return json.loads(resp.read().decode())
 
     def _post(self, path: str, body: dict) -> dict:
@@ -88,7 +100,7 @@ class BaseClient:
         data = json.dumps(body).encode()
         headers = {"Content-Type": "application/json", **self._headers()}
         req = urllib.request.Request(url, data=data, headers=headers)
-        with self._opener.open(req) as resp:
+        with self._opener.open(req, timeout=self.timeout) as resp:
             return json.loads(resp.read().decode())
 
     def _delete(self, path: str, params: Optional[dict] = None) -> dict:
@@ -111,7 +123,7 @@ class BaseClient:
         else:
             url = f"{self.base_url}{path}"
         req = urllib.request.Request(url, method="DELETE", headers=self._headers())
-        with self._opener.open(req) as resp:
+        with self._opener.open(req, timeout=self.timeout) as resp:
             return json.loads(resp.read().decode())
 
     def _to_dataframes(self, data: dict) -> dict:
