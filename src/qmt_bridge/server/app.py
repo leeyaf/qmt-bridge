@@ -12,13 +12,13 @@
 不再随 API 服务启动，避免 xtdata C 扩展并发调用崩溃。
 """
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 
 from .config import Settings, get_settings
+from .xtdata_lock import XtdataSerializerMiddleware
 
 # 全局日志记录器，用于记录服务端运行状态
 logger = logging.getLogger("qmt_bridge")
@@ -27,27 +27,10 @@ logger = logging.getLogger("qmt_bridge")
 # xtdata 的 C 扩展不是线程安全的。FastAPI 把同步路由处理函数分发到
 # 线程池并发执行，多个请求同时调用 xtdata 会导致 BSON 断言崩溃。
 #
-# 用 asyncio.Lock 包装的 async generator 依赖：
-#   1. 事件循环中 acquire —— 排队等候
-#   2. yield —— FastAPI 把 sync handler 提交到线程池并 await
-#   3. handler 完成后回到事件循环 release
-# 效果：同一时刻最多一个 sync handler 在线程池里调用 xtdata。
+# 通过 XtdataSerializerMiddleware（纯 ASGI 中间件）对 /api/* 请求加锁，
+# 保证同一时刻只有一个 sync handler 在线程池里调用 xtdata。
+# 详见 xtdata_lock.py。
 # ────────────────────────────────────────────────────────────────
-
-_xtdata_lock = asyncio.Lock()
-
-
-async def _xtdata_serialize():
-    """FastAPI 依赖：串行化 xtdata 调用，防止并发导致 C 扩展崩溃。"""
-    logger.debug("xtdata_lock: 等待获取锁...")
-    async with _xtdata_lock:
-        logger.debug("xtdata_lock: ✓ 已获取锁")
-        yield
-    logger.debug("xtdata_lock: 已释放锁")
-
-
-# 所有调用 xtdata 的 HTTP 路由共享此依赖列表
-_serial = [Depends(_xtdata_serialize)]
 
 
 @asynccontextmanager
@@ -156,12 +139,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=_lifespan,
     )
 
+    # 全局 xtdata 串行化中间件（仅拦截调用 xtdata 的 /api/* 端点）
+    app.add_middleware(XtdataSerializerMiddleware)
+
     # ------------------------------------------------------------------
     # 注册数据查询路由（始终可用，无需启用交易模块）
     # 这些路由底层调用 xtquant.xtdata 的各类行情数据接口
-    # dependencies=_serial 确保同一时刻只有一个请求调用 xtdata
+    # 串行化由 XtdataSerializerMiddleware 统一处理
     # ------------------------------------------------------------------
     from .routers import (
+        bond,
         calendar,
         cb,
         download,
@@ -181,23 +168,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         utility,
     )
 
-    app.include_router(market.router, dependencies=_serial)
-    app.include_router(tick.router, dependencies=_serial)
-    app.include_router(sector.router, dependencies=_serial)
-    app.include_router(calendar.router, dependencies=_serial)
-    app.include_router(financial.router, dependencies=_serial)
-    app.include_router(instrument.router, dependencies=_serial)
-    app.include_router(option.router, dependencies=_serial)
-    app.include_router(etf.router, dependencies=_serial)
-    app.include_router(cb.router, dependencies=_serial)
-    app.include_router(futures.router, dependencies=_serial)
-    app.include_router(meta.router, dependencies=_serial)
-    app.include_router(download.router, dependencies=_serial)
-    app.include_router(formula.router, dependencies=_serial)
-    app.include_router(hk.router, dependencies=_serial)
-    app.include_router(tabular.router, dependencies=_serial)
-    app.include_router(utility.router, dependencies=_serial)
-    app.include_router(legacy.router, dependencies=_serial)
+    app.include_router(market.router)
+    app.include_router(tick.router)
+    app.include_router(sector.router)
+    app.include_router(calendar.router)
+    app.include_router(financial.router)
+    app.include_router(instrument.router)
+    app.include_router(option.router)
+    app.include_router(etf.router)
+    app.include_router(cb.router)
+    app.include_router(bond.router)
+    app.include_router(futures.router)
+    app.include_router(meta.router)
+    app.include_router(download.router)
+    app.include_router(formula.router)
+    app.include_router(hk.router)
+    app.include_router(tabular.router)
+    app.include_router(utility.router)
+    app.include_router(legacy.router)
 
     # ------------------------------------------------------------------
     # 注册 WebSocket 端点（实时数据推送）
@@ -225,11 +213,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if settings.trading_enabled:
         from .routers import bank, credit, fund, smt, trading
 
-        app.include_router(trading.router, dependencies=_serial)
-        app.include_router(credit.router, dependencies=_serial)
-        app.include_router(fund.router, dependencies=_serial)
-        app.include_router(smt.router, dependencies=_serial)
-        app.include_router(bank.router, dependencies=_serial)
+        app.include_router(trading.router)
+        app.include_router(credit.router)
+        app.include_router(fund.router)
+        app.include_router(smt.router)
+        app.include_router(bank.router)
 
         from .ws import trade_callback
 

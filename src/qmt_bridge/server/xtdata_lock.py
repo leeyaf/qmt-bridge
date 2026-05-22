@@ -24,12 +24,17 @@ logger = logging.getLogger("qmt_bridge")
 # 全局异步锁，确保同一时刻只有一个请求/任务调用 xtdata
 xtdata_lock = asyncio.Lock()
 
+# /api/* 中无需串行化的前缀（不调用 xtdata 的端点，如通知接口）
+NO_LOCK_PREFIXES: tuple[str, ...] = ("/api/notify",)
+
 
 class XtdataSerializerMiddleware:
-    """纯 ASGI 中间件：串行化所有 HTTP 请求，防止并发调用 xtdata。
+    """纯 ASGI 中间件：串行化调用 xtdata 的 HTTP 请求。
 
     通过 asyncio.Lock 保证同一时刻只有一个请求的同步处理函数在线程池中执行。
-    WebSocket 连接不受此中间件影响（仅拦截 HTTP 请求）。
+    - 仅拦截 HTTP 请求，WebSocket 不受影响。
+    - 仅锁 /api/* 路径；/docs、/openapi.json 等静态端点直通。
+    - NO_LOCK_PREFIXES 中的路径（如 /api/notify）直通，不参与串行化。
     """
 
     def __init__(self, app):
@@ -39,10 +44,9 @@ class XtdataSerializerMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        # 只对 /api/ 路径加锁，/docs /openapi.json 等静态端点不受影响
         path = scope.get("path", "")
-        if path.startswith("/api/"):
+        if path.startswith("/api/") and not path.startswith(NO_LOCK_PREFIXES):
             async with xtdata_lock:
                 await self.app(scope, receive, send)
-        else:
-            await self.app(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
