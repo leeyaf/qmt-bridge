@@ -13,6 +13,32 @@ xtdata 的行情查询接口（如 get_market_data / get_market_data_ex / get_fi
 import numpy as np
 import pandas as pd
 
+def _safe_item_with_percision(value):
+    """
+    安全地从 numpy 标量中提取 Python 原生类型，并保留 2 位小数。
+    
+    Args:
+        value: numpy 标量或任意值
+    
+    Returns:
+        处理后的 Python 原生类型值
+    """
+    # 1. 提取 numpy 标量的值
+    if hasattr(value, "item"):
+        py_value = value.item()
+    else:
+        py_value = value
+    
+    # 2. 处理 Python 原生 float 中的 NaN 和 Inf（JSON 不支持这些特殊值）
+    if py_value != py_value or py_value == float("inf") or py_value == float("-inf"):
+        return None
+    
+    # 3. 处理浮点数精度
+    if isinstance(py_value, float):
+        return round(float(py_value), 2)
+    
+    # 4. 非数值类型直接返回
+    return value
 
 def _numpy_to_python(obj):
     """递归地将嵌套数据结构中的 numpy 类型转换为 Python 原生类型。
@@ -39,9 +65,7 @@ def _numpy_to_python(obj):
         return [_numpy_to_python(i) for i in obj]
     if isinstance(obj, float):
         # 处理 Python 原生 float 中的 NaN 和 Inf（JSON 不支持这些特殊值）
-        if obj != obj or obj == float("inf") or obj == float("-inf"):
-            return None
-        return obj
+        return _safe_item_with_percision(obj)
     if isinstance(obj, np.ndarray):
         # numpy 数组先转为 Python list，再递归处理每个元素
         return _numpy_to_python(obj.tolist())
@@ -50,10 +74,7 @@ def _numpy_to_python(obj):
         return int(obj)
     if isinstance(obj, (np.floating,)):
         # numpy 浮点类型（float16/float32/float64）转 Python float
-        val = float(obj)
-        if val != val or val == float("inf") or val == float("-inf"):
-            return None
-        return val
+        return _safe_item_with_percision(obj)
     if isinstance(obj, (np.bool_,)):
         # numpy 布尔类型转 Python bool
         return bool(obj)
@@ -119,8 +140,7 @@ def _market_data_to_records(
                 # 遍历该股票在该字段下的所有时间戳数据
                 for date, value in df.loc[stock].items():
                     entry = rows.setdefault(str(date), {"date": str(date)})
-                    # 如果值有 .item() 方法（numpy 标量），用 .item() 转为 Python 原生类型
-                    entry[field] = value.item() if hasattr(value, "item") else value
+                    entry[field] = _safe_item_with_percision(value)
         result[stock] = list(rows.values())
     return result
 
